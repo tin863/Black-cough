@@ -3,467 +3,236 @@ index.html
 <html lang="th">
 <head>
     <meta charset="UTF-8">
-    <title>Base Destroyer: Hardcore</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>The Haven Mobile</title>
     <style>
-        body { 
-            font-family: 'Courier New', Courier, monospace; 
-            text-align: center; 
-            background: #050505; 
-            color: #fff; 
-            margin: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            overflow: hidden;
-            user-select: none;
-        }
-        h1 { color: #ff3333; text-shadow: 0 0 20px #ff0000; margin-bottom: 5px; z-index: 10;}
-        canvas { border: 2px solid #555; background: #000; box-shadow: 0 0 60px rgba(255, 0, 0, 0.1); }
+        body { margin: 0; background: #111; color: #fff; font-family: sans-serif; overflow: hidden; touch-action: none; }
         
-        #overlay {
-            position: absolute;
-            background: rgba(0, 0, 0, 0.9);
-            padding: 40px;
-            border-radius: 15px;
-            border: 2px solid #ff3333;
-            text-align: center;
-            box-shadow: 0 0 30px #ff0000;
-            z-index: 20;
+        /* UI ส่วนบน */
+        #ui-top {
+            position: absolute; top: 0; width: 100%; display: flex; justify-content: space-around;
+            padding: 10px; background: rgba(0,0,0,0.6); font-size: 14px; z-index: 100;
         }
-        #result-text { font-size: 40px; margin-bottom: 20px; font-weight: bold; color: #fff; }
-        .win { color: #00ff88 !important; }
-        .lose { color: #ff0055 !important; }
-        
-        button {
-            padding: 15px 40px;
-            font-size: 20px;
-            cursor: pointer;
-            background: transparent;
-            color: #ff3333;
-            border: 2px solid #ff3333;
-            border-radius: 5px;
-            font-weight: bold;
-            transition: 0.2s;
+        .stat { color: #ffeb3b; }
+
+        /* ปุ่มควบคุมมือถือ */
+        #controls {
+            position: absolute; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 100;
         }
-        button:hover { background: #ff3333; color: #000; transform: scale(1.1); }
+        .btn {
+            width: 70px; height: 70px; background: rgba(255,255,255,0.2); border: 2px solid #fff;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: bold; color: #fff; user-select: none;
+        }
+        .btn:active { background: rgba(255,255,255,0.5); }
+
+        /* จอยสติ๊ก */
+        #joystick-base {
+            position: absolute; bottom: 40px; left: 40px; width: 100px; height: 100px;
+            background: rgba(255,255,255,0.1); border-radius: 50%; z-index: 100; border: 1px solid rgba(255,255,255,0.3);
+        }
+        #joystick-stick {
+            position: absolute; top: 25px; left: 25px; width: 50px; height: 50px;
+            background: #fff; border-radius: 50%; opacity: 0.5;
+        }
+
+        canvas { background: #2e4d2e; display: block; }
     </style>
 </head>
 <body>
 
-    <h1>BASE DESTROYER: HARDCORE</h1>
-    
-    <div style="position: relative;">
-        <canvas id="gameCanvas" width="800" height="400"></canvas>
-        <div id="overlay">
-            <div id="result-text" style="color: #ff3333;">WARNING: AI UPGRADED</div>
-            <button id="start-btn" onclick="startGame()">START MISSION</button>
-        </div>
+    <div id="ui-top">
+        <div>🪵 <span id="wood-val" class="stat">0</span></div>
+        <div>🍎 <span id="food-val" class="stat">0</span></div>
+        <div>👥 <span id="pop-val" class="stat">1</span></div>
+        <div id="time-val">☀️ กลางวัน</div>
     </div>
 
-    <p style="color: #aaa; font-size: 14px;">
-        [A/D] MOVE | [SPACE] FIRE | <span style="color: #ffcc00; font-weight: bold;">[SHIFT] ULTIMATE</span>
-    </p>
+    <div id="joystick-base">
+        <div id="joystick-stick"></div>
+    </div>
+
+    <div id="controls">
+        <div class="btn" id="btn-house">สร้างบ้าน<br>(30)</div>
+        <div class="btn" id="btn-wall">สร้างกำแพง<br>(10)</div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const overlay = document.getElementById('overlay');
-        const resultText = document.getElementById('result-text');
-        const startBtn = document.getElementById('start-btn');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
 
-        let playerBase, aiBase, player, ai, bullets, drones, particles, stars, gameActive;
-        let floatingTexts = [];
-        let supplyDrop = { active: false, x: 0, y: 0, type: 'none' };
-        let audioCtx, musicInterval;
-        let shakeIntensity = 0;
+        // --- Game Logic Variables ---
+        let world = { width: 2000, height: 2000 };
+        let camera = { x: 0, y: 0 };
+        let resources = { wood: 50, food: 20 };
+        let isNight = false;
+        let dayTime = 0;
         
-        let ultCharge = 0, aiUltCharge = 0;
-        const maxUltCharge = 100;
-        let laserBeam = { active: false, life: 0 };
-        let aiLaserBeam = { active: false, life: 0 };
-        
-        let lastDroneSpawn = 0;
-        const droneInterval = 5000;
-        let lastSupplyTime = 0;
+        let player = { x: 1000, y: 1000, size: 20, speed: 5, hp: 100 };
+        let survivors = [], zombies = [], entities = [], buildings = [];
 
-        function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+        // --- Joystick Logic ---
+        let stick = document.getElementById('joystick-stick');
+        let stickData = { x: 0, y: 0, active: false };
 
-        function playSound(type) {
-            if (!audioCtx) return;
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            const now = audioCtx.currentTime;
+        window.addEventListener('touchstart', e => {
+            let touch = e.touches[0];
+            let base = document.getElementById('joystick-base').getBoundingClientRect();
+            let dist = Math.hypot(touch.clientX - (base.left + 50), touch.clientY - (base.top + 50));
+            if(dist < 60) stickData.active = true;
+        });
+
+        window.addEventListener('touchmove', e => {
+            if(!stickData.active) return;
+            let touch = e.touches[0];
+            let base = document.getElementById('joystick-base').getBoundingClientRect();
+            let centerX = base.left + 50;
+            let centerY = base.top + 50;
             
-            if (type === 'shoot') {
-                osc.type = 'sawtooth'; osc.frequency.setValueAtTime(800, now); osc.frequency.exponentialRampToValueAtTime(100, now+0.1);
-                gain.gain.setValueAtTime(0.08, now); gain.gain.exponentialRampToValueAtTime(0.01, now+0.1);
-                osc.start(now); osc.stop(now+0.1);
-            } else if (type === 'powerup') {
-                osc.type = 'sine'; osc.frequency.setValueAtTime(600, now); osc.frequency.linearRampToValueAtTime(1200, now+0.3);
-                gain.gain.setValueAtTime(0.2, now); gain.gain.linearRampToValueAtTime(0, now+0.3);
-                osc.start(now); osc.stop(now+0.3);
-            } else if (type === 'hit') {
-                osc.type = 'square'; osc.frequency.setValueAtTime(100, now); osc.frequency.exponentialRampToValueAtTime(0.01, now+0.3);
-                gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now+0.3);
-                osc.start(now); osc.stop(now+0.3);
-            } else if (type === 'laser') {
-                osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, now); osc.frequency.linearRampToValueAtTime(50, now+0.5);
-                gain.gain.setValueAtTime(0.3, now); gain.gain.linearRampToValueAtTime(0, now+0.5);
-                osc.start(now); osc.stop(now+0.5);
-            } else if (type === 'crit') { 
-                osc.type = 'triangle'; osc.frequency.setValueAtTime(600, now); osc.frequency.exponentialRampToValueAtTime(1200, now+0.1);
-                gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now+0.2);
-                osc.start(now); osc.stop(now+0.2);
-            } else if (type === 'drone') {
-                osc.type = 'sine'; osc.frequency.setValueAtTime(400, now); osc.frequency.linearRampToValueAtTime(600, now+0.2);
-                gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0, now+0.2);
-                osc.start(now); osc.stop(now+0.2);
+            let angle = Math.atan2(touch.clientY - centerY, touch.clientX - centerX);
+            let dist = Math.min(50, Math.hypot(touch.clientX - centerX, touch.clientY - centerY));
+            
+            stickData.x = Math.cos(angle) * (dist / 50);
+            stickData.y = Math.sin(angle) * (dist / 50);
+            
+            stick.style.transform = `translate(${stickData.x * 40}px, ${stickData.y * 40}px)`;
+        });
+
+        window.addEventListener('touchend', () => {
+            stickData.active = false;
+            stickData.x = 0; stickData.y = 0;
+            stick.style.transform = `translate(0px, 0px)`;
+        });
+
+        // --- ปุ่มกดสร้างบ้าน ---
+        document.getElementById('btn-house').onclick = () => tryBuild('house');
+        document.getElementById('btn-wall').onclick = () => tryBuild('wall');
+
+        function tryBuild(type) {
+            let cost = type === 'house' ? 30 : 10;
+            if(resources.wood >= cost) {
+                resources.wood -= cost;
+                buildings.push({ x: player.x - 25, y: player.y - 25, w: 50, h: 50, type: type });
             }
         }
 
-        function playMusic() {
-            initAudio();
-            const tempo = 150; // เร็วขึ้น กดดันขึ้น
-            const noteLength = 60 / tempo / 2; let step = 0;
-            const sequence = [110, 110, 123, 110, 110, 110, 130, 98]; 
-            if (musicInterval) clearInterval(musicInterval);
-            musicInterval = setInterval(() => {
-                const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-                osc.type = 'triangle'; osc.frequency.setValueAtTime(sequence[step % sequence.length], audioCtx.currentTime);
-                gain.gain.setValueAtTime(0.05, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + noteLength);
-                osc.connect(gain); gain.connect(audioCtx.destination);
-                osc.start(); osc.stop(audioCtx.currentTime + noteLength);
-                step++;
-            }, noteLength * 1000);
+        // --- Game Functions ---
+        function spawnEntity(type) {
+            entities.push({
+                x: Math.random() * world.width, y: Math.random() * world.height,
+                type: type, size: type === 'tree' ? 20 : 10, hp: 100, id: Math.random()
+            });
         }
-
-        function startGame() { playMusic(); init(); }
 
         function init() {
-            stars = [];
-            for(let i=0; i<80; i++) stars.push({ x: Math.random()*800, y: Math.random()*400, size: Math.random()*2 });
-            
-            playerBase = { x: 30, y: 280, w: 80, h: 100, hp: 150, maxHp: 150, color: '#00d4ff' };
-            aiBase = { x: 690, y: 280, w: 80, h: 100, hp: 200, maxHp: 200, color: '#ff0055' }; // บัฟเลือด AI เป็น 200
-            
-            // NERF PLAYER: ลดความเร็วเหลือ 5
-            player = { x: 150, y: 350, w: 40, h: 25, speed: 5, color: '#00d4ff', type: 'player', rapidFire: 0 };
-            
-            // BUFF AI: เพิ่มความเร็วเป็น 5.5 (เร็วกว่าเรา!)
-            ai = { x: 630, y: 350, w: 40, h: 25, speed: 5.5, lastShot: 0, color: '#ff0055', type: 'ai', rapidFire: 0, moveDir: 0 };
-            
-            bullets = []; drones = []; particles = []; floatingTexts = []; 
-            gameActive = true; shakeIntensity = 0; 
-            ultCharge = 0; aiUltCharge = 0;
-            
-            lastDroneSpawn = Date.now();
-            lastSupplyTime = Date.now();
-            supplyDrop = { active: false };
-            
-            overlay.style.display = 'none';
-            requestAnimationFrame(loop);
+            for(let i=0; i<40; i++) spawnEntity('tree');
+            for(let i=0; i<20; i++) spawnEntity('food');
+            for(let i=0; i<5; i++) spawnEntity('survivor');
+            requestAnimationFrame(gameLoop);
         }
-
-        function spawnDrone(owner) {
-            let isPlayer = owner === 'p';
-            drones.push({
-                x: isPlayer ? playerBase.x + 40 : aiBase.x + 40,
-                y: playerBase.y - 20, 
-                speed: isPlayer ? 2 : -2,
-                color: isPlayer ? '#00d4ff' : '#ff0055',
-                owner: owner,
-                hp: 1, 
-                offsetY: Math.random() * 100 
-            });
-        }
-
-        function spawnSupplyDrop() {
-            if (supplyDrop.active) return;
-            const type = Math.random() < 0.5 ? 'HEAL' : 'RAPID';
-            supplyDrop = {
-                active: true,
-                x: 300 + Math.random() * 200, 
-                y: -50,
-                type: type,
-                vy: 2
-            };
-        }
-
-        function spawnFloatingText(x, y, text, color, isCrit) {
-            floatingTexts.push({ x, y, text, color, life: 1.0, vy: -2, isCrit, size: isCrit ? 30 : 20 });
-        }
-
-        function spawnDamageEffects(base) {
-            const centerX = base.x + base.w/2 + (Math.random()-0.5)*30;
-            const centerY = base.y + base.h/2 + (Math.random()-0.5)*30;
-            if (base.hp <= base.maxHp * 0.5 && Math.random() < 0.1) particles.push({x: centerX, y: centerY, vx: (Math.random()-0.5), vy: -1-Math.random(), life: 1, color: 'rgba(100,100,100,0.5)', size: 4+Math.random()*4});
-            if (base.hp <= base.maxHp * 0.3 && Math.random() < 0.15) particles.push({x: centerX, y: centerY, vx: (Math.random()-0.5)*2, vy: -2-Math.random(), life: 0.8, color: `rgba(255, ${Math.random()*100}, 0, 0.8)`, size: 3+Math.random()*3});
-        }
-
-        function drawVehicle(obj) {
-            const hoverY = Math.sin(Date.now() / 200) * 3; 
-            const x = obj.x; const y = obj.y + hoverY; const w = obj.w; const h = obj.h;
-            
-            if (obj.rapidFire > 0) { ctx.shadowBlur = 20; ctx.shadowColor = '#ffff00'; } 
-            else { ctx.shadowBlur = 10; ctx.shadowColor = obj.color; }
-            
-            ctx.fillStyle = obj.color;
-            if (obj.type === 'player') {
-                ctx.beginPath(); ctx.moveTo(x, y+h); ctx.lineTo(x+w, y+h); ctx.lineTo(x+w, y+h*0.5); ctx.lineTo(x+w*0.7, y); ctx.lineTo(x+w*0.2, y); ctx.lineTo(x, y+h*0.4); ctx.closePath(); ctx.fill();
-                ctx.fillStyle = '#fff'; ctx.fillRect(x+w*0.6, y+5, w*0.6, 4);
-                ctx.fillStyle = '#00ffff'; ctx.globalAlpha = 0.7; ctx.beginPath(); ctx.arc(x, y+h*0.7, 5+Math.random()*3, 0, Math.PI*2); ctx.fill();
-            } else {
-                ctx.beginPath(); ctx.moveTo(x+w, y+h); ctx.lineTo(x, y+h); ctx.lineTo(x, y+h*0.5); ctx.lineTo(x+w*0.3, y); ctx.lineTo(x+w*0.8, y); ctx.lineTo(x+w, y+h*0.4); ctx.closePath(); ctx.fill();
-                ctx.fillStyle = '#fff'; ctx.fillRect(x-w*0.2, y+5, w*0.6, 4);
-                ctx.fillStyle = '#ff3333'; ctx.globalAlpha = 0.7; ctx.beginPath(); ctx.arc(x+w, y+h*0.7, 5+Math.random()*3, 0, Math.PI*2); ctx.fill();
-            }
-            ctx.globalAlpha = 1; ctx.shadowBlur = 0;
-        }
-
-        function drawBase(base, isPlayer) {
-            ctx.save();
-            ctx.shadowBlur = 15; ctx.shadowColor = base.color; ctx.fillStyle = base.color;
-            const x = base.x; const y = base.y; const w = base.w; const h = base.h;
-            ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w * 0.8, y + h * 0.3); ctx.lineTo(x + w * 0.5, y); ctx.lineTo(x + w * 0.2, y + h * 0.3); ctx.closePath(); ctx.fill();
-            ctx.strokeStyle = base.color; ctx.lineWidth = 3;
-            ctx.beginPath(); ctx.moveTo(x + w * 0.5, y); ctx.lineTo(x + w * 0.5, y - 25); ctx.stroke();
-            if (Math.floor(Date.now() / 300) % 2 === 0) { ctx.fillStyle = isPlayer ? '#fff' : '#ff0000'; ctx.beginPath(); ctx.arc(x + w * 0.5, y - 28, 4, 0, Math.PI * 2); ctx.fill(); }
-            
-            ctx.shadowBlur = 0; ctx.fillStyle = '#333'; ctx.fillRect(x, y - 45, w, 6);
-            ctx.fillStyle = base.hp > base.maxHp*0.3 ? '#00ff88' : '#ff0055'; ctx.fillRect(x, y - 45, Math.max(0, (base.hp/base.maxHp)*w), 6);
-            ctx.fillStyle = '#fff'; ctx.font = "12px Courier New"; ctx.fillText(Math.ceil(base.hp) + "/" + base.maxHp, x + w/4, y - 50);
-            ctx.restore();
-        }
-
-        function drawDrone(d) {
-            ctx.save();
-            const bob = Math.sin((Date.now() + d.offsetY)/100) * 5;
-            ctx.translate(d.x, d.y + bob);
-            ctx.shadowBlur = 5; ctx.shadowColor = d.color; ctx.fillStyle = d.color;
-            ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-10, -5); ctx.lineTo(0, 5); ctx.lineTo(10, -5); ctx.fill();
-            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
-            const propWidth = Math.sin(Date.now()/20) * 15;
-            ctx.beginPath(); ctx.moveTo(-propWidth, -8); ctx.lineTo(propWidth, -8); ctx.stroke();
-            ctx.restore();
-        }
-
-        function drawSupplyDrop() {
-            if (!supplyDrop.active) return;
-            ctx.save();
-            ctx.translate(supplyDrop.x, supplyDrop.y);
-            ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
-            ctx.beginPath(); ctx.arc(0, -30, 20, Math.PI, 0); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(-20, -30); ctx.lineTo(-10, -10); ctx.stroke();
-            ctx.beginPath(); ctx.moveTo(20, -30); ctx.lineTo(10, -10); ctx.stroke();
-            ctx.fillStyle = supplyDrop.type === 'HEAL' ? '#00ff00' : '#ffff00';
-            ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle;
-            ctx.fillRect(-15, -15, 30, 30);
-            ctx.fillStyle = '#000'; ctx.font = 'bold 20px Arial'; ctx.textAlign = 'center';
-            ctx.fillText(supplyDrop.type === 'HEAL' ? '+' : '⚡', 0, 8);
-            ctx.restore();
-        }
-
-        function createExplosion(x, y, color) {
-            for(let i=0; i<20; i++) particles.push({x, y, vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15, life: 1, color: color, size: Math.random()*3});
-        }
-
-        let keys = {};
-        window.onkeydown = (e) => keys[e.code] = true;
-        window.onkeyup = (e) => keys[e.code] = false;
 
         function update() {
-            if (!gameActive) return;
-            if (shakeIntensity > 0) shakeIntensity *= 0.9;
-            if (shakeIntensity < 0.5) shakeIntensity = 0;
-            
-            if (ultCharge < maxUltCharge) ultCharge += 0.2; 
-            if (aiUltCharge < maxUltCharge) aiUltCharge += 0.25; // AI ชาร์จท่าไม้ตายไวขึ้น
+            // เดินตามจอยสติ๊ก
+            player.x += stickData.x * player.speed;
+            player.y += stickData.y * player.speed;
 
-            // ลดเวลาบัฟ (Nerf: เหลือ 3 วิ = 180 เฟรม)
-            if (player.rapidFire > 0) player.rapidFire--;
-            if (ai.rapidFire > 0) ai.rapidFire--;
+            // กล้อง
+            camera.x = player.x - canvas.width/2;
+            camera.y = player.y - canvas.height/2;
 
-            if (Date.now() - lastDroneSpawn > droneInterval) {
-                spawnDrone('p'); spawnDrone('ai'); playSound('drone'); lastDroneSpawn = Date.now();
-            }
-            if (Date.now() - lastSupplyTime > 8000 + Math.random()*5000) { 
-                spawnSupplyDrop(); lastSupplyTime = Date.now();
+            // เวลาและซอมบี้
+            dayTime++;
+            if(dayTime > 2000) { dayTime = 0; isNight = !isNight; }
+            document.getElementById('time-val').innerText = isNight ? "🌙 กลางคืน" : "☀️ กลางวัน";
+            if(isNight && Math.random() < 0.02) {
+                zombies.push({x: Math.random()*2000, y: Math.random()*2000, hp: 50});
             }
 
-            if (supplyDrop.active) {
-                if (supplyDrop.y < 350) supplyDrop.y += supplyDrop.vy; 
-                if (Math.abs(player.x - supplyDrop.x) < 40 && Math.abs(player.y - supplyDrop.y) < 40) {
-                    playSound('powerup');
-                    spawnFloatingText(player.x, player.y - 30, supplyDrop.type + "!", "#00ff00", true);
-                    if (supplyDrop.type === 'HEAL') playerBase.hp = Math.min(playerBase.maxHp, playerBase.hp + 30);
-                    if (supplyDrop.type === 'RAPID') player.rapidFire = 180; // ลดเหลือ 3 วินาที
-                    supplyDrop.active = false;
-                }
-                else if (Math.abs(ai.x - supplyDrop.x) < 40 && Math.abs(ai.y - supplyDrop.y) < 40) {
-                    playSound('powerup');
-                    spawnFloatingText(ai.x, ai.y - 30, supplyDrop.type + "!", "#ff0055", true);
-                    if (supplyDrop.type === 'HEAL') aiBase.hp = Math.min(aiBase.maxHp, aiBase.hp + 30);
-                    if (supplyDrop.type === 'RAPID') ai.rapidFire = 180;
-                    supplyDrop.active = false;
-                }
-            }
-
-            if (keys['KeyA'] && player.x > 120) player.x -= player.speed;
-            if (keys['KeyD'] && player.x < 660) player.x += player.speed;
-            
-            let cooldownTime = player.rapidFire > 0 ? 100 : 300; // ยิงช้าลงนิดหน่อย (Nerf)
-            if (keys['Space'] && !player.cooldown) {
-                let isCrit = Math.random() < 0.2;
-                bullets.push({x: player.x + 35, y: player.y + 7, s: 12, color: isCrit ? '#ffcc00' : '#00d4ff', owner: 'p', dmg: isCrit ? 10 : 5, crit: isCrit});
-                playSound('shoot'); 
-                player.cooldown = true; setTimeout(() => player.cooldown = false, cooldownTime);
-            }
-
-            // --- 🧠 IMPROVED AI LOGIC (ฉลาดขึ้น) ---
-            let targetX = ai.x;
-            let dodging = false;
-
-            // 1. ระบบหลบกระสุน (Dodge System)
-            for(let b of bullets) {
-                if(b.owner === 'p' && b.x < ai.x && b.x > ai.x - 150) { // ถ้ากระสุนกำลังพุ่งเข้ามาใกล้ๆ
-                    dodging = true;
-                    // หลบไปทางที่ปลอดภัยกว่า
-                    if(ai.x > 600) targetX -= ai.speed; // ถ้าติดขวา ให้หนีไปซ้าย
-                    else targetX += ai.speed; // หนีไปขวา
-                    break;
-                }
-            }
-
-            // 2. ถ้าไม่ต้องหลบ ให้เล่นตามปกติ
-            if (!dodging) {
-                if (supplyDrop.active && Math.abs(ai.x - supplyDrop.x) < 300) {
-                    if (ai.x < supplyDrop.x) targetX += ai.speed; else targetX -= ai.speed;
-                } else {
-                    if (Math.random() < 0.05) ai.moveDir = Math.random() < 0.5 ? -1 : 1;
-                    targetX += (ai.moveDir || 0) * ai.speed;
-                }
-            }
-            if (targetX > 150 && targetX < 650) ai.x = targetX;
-
-            // 3. ยิงดุขึ้น
-            let aiCooldown = ai.rapidFire > 0 ? 100 : 900; // ยิงไวขึ้น (ปกติ 1100)
-            if (Date.now() - ai.lastShot > aiCooldown) {
-                let isCrit = Math.random() < 0.25; // โอกาสคริเยอะกว่าเรา (25%)
-                bullets.push({x: ai.x, y: ai.y + 7, s: -9, color: isCrit ? '#ff0000' : '#ff0055', owner: 'ai', dmg: isCrit ? 10 : 5, crit: isCrit});
-                playSound('shoot'); ai.lastShot = Date.now();
-            }
-            // ----------------------------------------
-
-            if ((keys['ShiftLeft'] || keys['ShiftRight']) && ultCharge >= maxUltCharge) {
-                laserBeam.active = true; laserBeam.life = 1.0; ultCharge = 0; 
-                playSound('laser'); shakeIntensity = 20; 
-                bullets = bullets.filter(b => b.owner === 'p'); drones = drones.filter(d => d.owner === 'p');
-                aiBase.hp -= 20;
-                spawnFloatingText(aiBase.x + 40, aiBase.y, "PHOTON BLAST!", "#ffcc00", true);
-                createExplosion(aiBase.x, aiBase.y + 50, '#ffcc00');
-            }
-            if (aiUltCharge >= maxUltCharge) {
-                aiLaserBeam.active = true; aiLaserBeam.life = 1.0; aiUltCharge = 0;
-                playSound('laser'); shakeIntensity = 20;
-                bullets = bullets.filter(b => b.owner === 'ai'); drones = drones.filter(d => d.owner === 'ai');
-                playerBase.hp -= 20;
-                spawnFloatingText(playerBase.x + 40, playerBase.y, "ENEMY ULT!", "#ff0000", true);
-                createExplosion(playerBase.x, playerBase.y + 50, '#ff0055');
-            }
-            
-            drones.forEach((d, i) => {
-                d.x += d.speed;
-                if (d.owner === 'p' && d.x > aiBase.x + 10) {
-                    aiBase.hp -= 8; createExplosion(d.x, d.y, d.color); playSound('hit'); shakeIntensity = 8;
-                    spawnFloatingText(d.x, d.y, "-8", "#ffcc00", false); drones.splice(i, 1);
-                } else if (d.owner === 'ai' && d.x < playerBase.x + playerBase.w - 10) {
-                    playerBase.hp -= 8; createExplosion(d.x, d.y, d.color); playSound('hit'); shakeIntensity = 8;
-                    spawnFloatingText(d.x, d.y, "-8", "#ff0055", false); drones.splice(i, 1);
-                }
-            });
-
-            bullets.forEach((b, i) => {
-                b.x += b.s;
-                let hit = false;
-                drones.forEach((d, di) => {
-                    if (!hit && b.owner !== d.owner && Math.abs(b.x - d.x) < 20 && Math.abs(b.y - (d.y + Math.sin((Date.now() + d.offsetY)/100)*5)) < 20) {
-                        createExplosion(d.x, d.y, d.color); playSound('hit'); drones.splice(di, 1); bullets.splice(i, 1);
-                        spawnFloatingText(d.x, d.y, "BLOCKED!", "#fff", false); hit = true;
-                    }
+            // NPC AI (เก็บของ)
+            survivors.forEach(s => {
+                let target = null;
+                entities.forEach(ent => {
+                    if((ent.type === 'tree' || ent.type === 'food') && Math.hypot(ent.x - s.x, ent.y - s.y) < 200) target = ent;
                 });
-                if(hit) return;
 
-                if (b.owner == 'p' && b.x > aiBase.x + 10) { 
-                    aiBase.hp -= b.dmg; createExplosion(b.x, b.y, '#ff0055'); playSound(b.crit ? 'crit' : 'hit'); shakeIntensity = b.crit ? 15 : 5;
-                    spawnFloatingText(aiBase.x + Math.random()*50, aiBase.y + 50, "-" + b.dmg, b.crit ? '#ffcc00' : '#fff', b.crit);
-                    bullets.splice(i, 1); ultCharge += b.crit ? 10 : 5; 
+                if(target) {
+                    let angle = Math.atan2(target.y - s.y, target.x - s.x);
+                    s.x += Math.cos(angle) * 2; s.y += Math.sin(angle) * 2;
+                    if(Math.hypot(target.x - s.x, target.y - s.y) < 20) {
+                        if(target.type === 'food') resources.food += 2;
+                        else resources.wood += 0.2;
+                    }
+                } else {
+                    let angle = Math.atan2(player.y - s.y, player.x - s.x);
+                    if(Math.hypot(player.x - s.x, player.y - s.y) > 50) {
+                        s.x += Math.cos(angle) * 3; s.y += Math.sin(angle) * 3;
+                    }
                 }
-                else if (b.owner == 'ai' && b.x < playerBase.x + playerBase.w - 10) { 
-                    playerBase.hp -= b.dmg; createExplosion(b.x, b.y, '#00d4ff'); playSound('hit'); shakeIntensity = 5;
-                    spawnFloatingText(playerBase.x + Math.random()*50, playerBase.y + 50, "-" + b.dmg, b.crit ? '#ff0000' : '#ffcccc', b.crit);
-                    bullets.splice(i, 1); aiUltCharge += b.crit ? 10 : 5;
-                }
-                else if (b.x < 0 || b.x > 800) bullets.splice(i, 1);
             });
 
-            spawnDamageEffects(playerBase); spawnDamageEffects(aiBase);
-            particles.forEach((p, i) => { p.x += p.vx; p.y += p.vy; p.life -= 0.02; if(p.life <= 0) particles.splice(i, 1); });
-            floatingTexts.forEach((ft, i) => { ft.y += ft.vy; ft.life -= 0.02; if(ft.life <= 0) floatingTexts.splice(i, 1); });
+            // ช่วยคน
+            entities.forEach((ent, i) => {
+                if(ent.type === 'survivor' && Math.hypot(player.x - ent.x, player.y - ent.y) < 40) {
+                    survivors.push({x: ent.x, y: ent.y});
+                    entities.splice(i, 1);
+                }
+            });
 
-            if (playerBase.hp <= 0) endGame("MISSION FAILED", "lose");
-            if (aiBase.hp <= 0) endGame("MISSION ACCOMPLISHED", "win");
+            // UI
+            document.getElementById('wood-val').innerText = Math.floor(resources.wood);
+            document.getElementById('food-val').innerText = Math.floor(resources.food);
+            document.getElementById('pop-val').innerText = survivors.length + 1;
         }
 
         function draw() {
-            ctx.save();
-            if (shakeIntensity > 0) ctx.translate((Math.random()-0.5)*shakeIntensity, (Math.random()-0.5)*shakeIntensity);
+            ctx.setTransform(1,0,0,1,0,0);
+            ctx.clearRect(0,0, canvas.width, canvas.height);
+            ctx.translate(-camera.x, -camera.y);
 
-            ctx.fillStyle = '#000'; ctx.fillRect(-10, -10, 820, 420);
-            ctx.fillStyle = '#fff'; stars.forEach(s => ctx.fillRect(s.x, s.y, s.size, s.size));
-            ctx.strokeStyle = '#ff3333'; ctx.strokeRect(0, 380, 800, 1); // พื้นแดงธีมโหด
-            
-            drawBase(playerBase, true); drawBase(aiBase, false);
-            drawVehicle(player); drawVehicle(ai);
-            drones.forEach(d => drawDrone(d));
-            drawSupplyDrop();
+            // วาดตารางพื้น
+            ctx.strokeStyle = "rgba(255,255,255,0.05)";
+            for(let i=0; i<2000; i+=100) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 2000); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(2000, i); ctx.stroke();
+            }
 
-            bullets.forEach(b => {
-                ctx.shadowColor = b.color; ctx.shadowBlur = 10; ctx.fillStyle = b.color;
-                ctx.beginPath(); ctx.arc(b.x, b.y, b.crit ? 6 : 4, 0, 7); ctx.fill();
+            // วาดสิ่งของ
+            entities.forEach(ent => {
+                ctx.fillStyle = ent.type === 'tree' ? '#2e7d32' : (ent.type === 'food' ? '#f44336' : '#fff');
+                ctx.beginPath(); ctx.arc(ent.x, ent.y, ent.size, 0, Math.PI*2); ctx.fill();
             });
 
-            if (laserBeam.active) {
-                ctx.save(); ctx.globalAlpha = laserBeam.life;
-                ctx.fillStyle = '#fff'; ctx.fillRect(player.x + 40, player.y + 5, 800, 10);
-                ctx.shadowBlur = 30; ctx.shadowColor = '#ffcc00'; ctx.fillStyle = '#ffcc00'; ctx.fillRect(player.x + 40, player.y, 800, 20);
-                ctx.restore(); laserBeam.life -= 0.05; if (laserBeam.life <= 0) laserBeam.active = false;
-            }
-            if (aiLaserBeam.active) {
-                ctx.save(); ctx.globalAlpha = aiLaserBeam.life;
-                ctx.fillStyle = '#fff'; ctx.fillRect(ai.x - 800, ai.y + 5, 800, 10);
-                ctx.shadowBlur = 30; ctx.shadowColor = '#ff0000'; ctx.fillStyle = '#ff0000'; ctx.fillRect(ai.x - 800, ai.y, 800, 20);
-                ctx.restore(); aiLaserBeam.life -= 0.05; if (aiLaserBeam.life <= 0) aiLaserBeam.active = false;
-            }
+            // วาดบ้าน
+            buildings.forEach(b => {
+                ctx.fillStyle = b.type === 'house' ? '#795548' : '#555';
+                ctx.fillRect(b.x, b.y, b.w, b.h);
+            });
 
-            particles.forEach(p => { ctx.globalAlpha = p.life; ctx.fillStyle = p.color; if (p.size) { ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill(); } else { ctx.fillRect(p.x, p.y, 3, 3); } });
-            floatingTexts.forEach(ft => { ctx.globalAlpha = ft.life; ctx.fillStyle = ft.color; ctx.font = `bold ${ft.size}px Courier New`; ctx.shadowColor = ft.color; ctx.shadowBlur = 5; ctx.fillText(ft.text, ft.x, ft.y); });
-            ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.restore();
-
-            ctx.fillStyle = '#333'; ctx.fillRect(player.x, player.y + 40, 40, 5); 
-            ctx.fillStyle = ultCharge >= maxUltCharge ? '#ffcc00' : '#00ffff'; ctx.fillRect(player.x, player.y + 40, (ultCharge/maxUltCharge)*40, 5);
+            // วาดตัวละคร
+            ctx.fillStyle = '#2196F3';
+            ctx.beginPath(); ctx.arc(player.x, player.y, player.size, 0, Math.PI*2); ctx.fill();
             
-            ctx.fillStyle = '#333'; ctx.fillRect(ai.x, ai.y + 40, 40, 5); 
-            ctx.fillStyle = aiUltCharge >= maxUltCharge ? '#ff0000' : '#ff0055'; ctx.fillRect(ai.x, ai.y + 40, (aiUltCharge/maxUltCharge)*40, 5);
+            ctx.fillStyle = '#fff';
+            survivors.forEach(s => { ctx.beginPath(); ctx.arc(s.x, s.y, 10, 0, Math.PI*2); ctx.fill(); });
+
+            // วาดซอมบี้
+            ctx.fillStyle = '#4caf50';
+            zombies.forEach(z => { ctx.beginPath(); ctx.arc(z.x, z.y, 12, 0, Math.PI*2); ctx.fill(); });
+
+            // ฟิลเตอร์กลางคืน
+            if(isNight) {
+                ctx.setTransform(1,0,0,1,0,0);
+                ctx.fillStyle = "rgba(0,0,50,0.3)";
+                ctx.fillRect(0,0, canvas.width, canvas.height);
+            }
         }
 
-        function endGame(text, className) {
-            gameActive = false; resultText.innerText = text; resultText.className = className; startBtn.innerText = "RETRY"; overlay.style.display = 'block';
-        }
-        function loop() { if (gameActive) { update(); draw(); requestAnimationFrame(loop); } }
-        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 800, 400);
+        function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+        init();
     </script>
 </body>
 </html>
